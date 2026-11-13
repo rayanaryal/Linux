@@ -25,9 +25,10 @@ My notes from turning an old **WatchGuard Firebox XTM 5 Series** firewall into a
 12. [SSH Keys](#12-ssh-keys)
 13. [Turning Off Password Logins](#13-turning-off-password-logins)
 14. [Giving Someone Else Access](#14-giving-someone-else-access)
-15. [Mistakes I Made (and Lessons)](#15-mistakes-i-made-and-lessons)
-16. [Command Cheat Sheet](#16-command-cheat-sheet)
-17. [Next Steps](#17-next-steps)
+15. [Reaching the Firewall from Outside (VPN)](#15-reaching-the-firewall-from-outside-vpn)
+16. [Mistakes I Made (and Lessons)](#16-mistakes-i-made-and-lessons)
+17. [Command Cheat Sheet](#17-command-cheat-sheet)
+18. [Next Steps](#18-next-steps)
 
 ---
 
@@ -641,11 +642,79 @@ sudo chmod 600 /home/boss/.ssh/authorized_keys
 
 Other options: show it in person over SSH, or keep config files in a **Git** repo so changes are tracked.
 
-> Access from outside the home network needs a **VPN**. Never open SSH directly to the internet.
+> Access from outside the home network needs a **VPN**. Never open SSH directly to the internet. See the next section.
 
 ---
 
-## 15. Mistakes I Made (and Lessons)
+## 15. Reaching the Firewall from Outside (VPN)
+
+**Question:** can someone at the office (e.g. my boss) connect to the firewall at my home?
+
+**Short answer:** not unless the **firewall itself** has a VPN connection.
+
+### Why the office can't reach it directly
+
+```
+Office  ──internet──►  Home router  ✗ blocked  →  Firewall (192.168.x.x)
+```
+
+- The firewall has a **private address** (`192.168.x.x`). Private addresses **only work inside the home network**. The internet can't reach them.
+- The home router uses **NAT (Network Address Translation)** to share **one public internet address** between all home devices.
+- NAT **lets devices go out**, but **blocks unrequested connections coming in**. That's a good security feature.
+
+### Why a VPN on my work laptop doesn't help
+
+A work VPN builds a tunnel between **my laptop** and the **company network**:
+
+```
+Company network  ══ VPN tunnel ══  My laptop
+                                       ✗ no tunnel
+                                   Home firewall
+```
+
+The home network is **not part of that tunnel**, so the office still has no path to the firewall.
+
+### How a VPN on the firewall solves it
+
+The firewall **reaches out** from inside the home and builds the tunnel. Outgoing connections are allowed through NAT, so the office can come back **through** the tunnel:
+
+```
+Office  ══ VPN tunnel ══  Firewall (made the tunnel from inside the home)
+```
+
+### Options
+
+| Option | Can the office reach the firewall? | Notes |
+|---|---|---|
+| No VPN on the firewall | ❌ No | Home router (NAT) blocks it |
+| Firewall joins the **company VPN** | ✅ Yes | Cleanest way. Must be set up by the boss / IT (they create the VPN account and settings) |
+| **Tailscale** (or WireGuard) on the firewall and the office device | ✅ Yes | Easy, works even when the ISP blocks incoming connections. **Check company rules first** |
+| **Port forwarding** SSH on the home router | ⚠️ Possible but **unsafe** | Bots start attacking within minutes. Don't do it |
+| Just **share the notes / config files** | (Not needed) | No network changes, no risk |
+
+### Tailscale quick setup (only if allowed)
+
+On the firewall:
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh     # download and run the installer
+sudo tailscale up                                    # prints a link: open it and log in
+tailscale ip -4                                      # shows the firewall's Tailscale address (100.x.y.z)
+```
+
+On the office device: install the Tailscale app, log in, then:
+```bash
+ssh <username>@<tailscale-ip>
+```
+
+### Rules I follow
+
+- **Never** open SSH directly to the internet.
+- **Don't install extra VPN software on a company laptop** without permission. It can clash with the company VPN and may break company rules.
+- Anyone else gets **their own account and SSH key** (see section 14). Never share mine.
+
+---
+
+## 16. Mistakes I Made (and Lessons)
 
 | Mistake | Lesson |
 |---|---|
@@ -669,7 +738,7 @@ Other options: show it in person over SSH, or keep config files in a **Git** rep
 
 ---
 
-## 16. Command Cheat Sheet
+## 17. Command Cheat Sheet
 
 ### Serial console
 ```bash
@@ -724,8 +793,9 @@ nano file                                         # edit (save Ctrl+O, exit Ctrl
 
 ---
 
-## 17. Next Steps
+## 18. Next Steps
 
+- [ ] Decide on **remote access**: share the notes only, or put the firewall on the company VPN / Tailscale (with permission)
 - [ ] Give the firewall a **fixed IP** (DHCP reservation in the router, or a static IP in netplan)
 - [ ] Set up **`ufw`** (allow SSH, block everything else)
 - [ ] Decide what the box becomes:
